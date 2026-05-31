@@ -3,3 +3,6 @@ pandas>=2.2.0
 numpy>=1.26.0
 pillow>=10.3.0
 rich>=13.0.0
+yfinance>=0.2.54
+plotly>=5.20.0
+scipy>=1.13.0
