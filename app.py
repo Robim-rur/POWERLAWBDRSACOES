@@ -30,42 +30,78 @@ loss_atr = st.sidebar.slider("Stop Loss (ATR)", 0.5, 5.0, 1.5)
 # ==========================================================
 @st.cache_data(ttl=3600)
 def load(symbol):
-    df = yf.download(symbol, period="max", interval="1d", auto_adjust=True)
+
+    df = yf.download(
+        symbol,
+        period="max",
+        interval="1d",
+        auto_adjust=True,
+        progress=False
+    )
+
     if df.empty:
         return df
+
+    # Corrige retornos MultiIndex do yfinance
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.get_level_values(0)
+
     df = df.reset_index()
+
     return df
 
 # ==========================================================
 # INDICATORS
 # ==========================================================
 def ema(s, p):
+
+    if isinstance(s, pd.DataFrame):
+        s = s.iloc[:, 0]
+
     return s.ewm(span=p, adjust=False).mean()
 
+
 def rsi(s, p=14):
+
+    if isinstance(s, pd.DataFrame):
+        s = s.iloc[:, 0]
+
+    s = pd.Series(s).astype(float)
+
     d = s.diff()
-    g = np.where(d > 0, d, 0)
-    l = np.where(d < 0, -d, 0)
-    ag = pd.Series(g).rolling(p).mean()
-    al = pd.Series(l).rolling(p).mean()
-    rs = ag / al
+
+    gain = d.clip(lower=0)
+    loss = (-d).clip(lower=0)
+
+    avg_gain = gain.rolling(p).mean()
+    avg_loss = loss.rolling(p).mean()
+
+    rs = avg_gain / avg_loss
+
     return 100 - (100 / (1 + rs))
 
+
 def atr(df, p=14):
-    h, l, c = df["High"], df["Low"], df["Close"]
+
+    high = pd.Series(df["High"]).astype(float)
+    low = pd.Series(df["Low"]).astype(float)
+    close = pd.Series(df["Close"]).astype(float)
+
     tr = pd.concat([
-        h-l,
-        (h-c.shift()).abs(),
-        (l-c.shift()).abs()
+        high - low,
+        (high - close.shift()).abs(),
+        (low - close.shift()).abs()
     ], axis=1).max(axis=1)
+
     return tr.rolling(p).mean()
 
 # ==========================================================
-# CORE ENGINE (NÃO MEXIDO — EVOLUÍDO)
+# CORE ENGINE
 # ==========================================================
 def analyze(asset, sector):
 
     df = load(asset)
+
     if df.empty or len(df) < 200:
         return None
 
@@ -73,31 +109,48 @@ def analyze(asset, sector):
     df["EMA29"] = ema(df["Close"], 29)
     df["EMA69"] = ema(df["Close"], 69)
     df["EMA169"] = ema(df["Close"], 169)
+
     df["RSI"] = rsi(df["Close"])
     df["ATR"] = atr(df)
 
     df = df.dropna()
 
-    price = df["Close"].iloc[-1]
-    ema169 = df["EMA169"].iloc[-1]
-    rsi_now = df["RSI"].iloc[-1]
+    if len(df) < 50:
+        return None
+
+    price = float(df["Close"].iloc[-1])
+    ema169 = float(df["EMA169"].iloc[-1])
+    rsi_now = float(df["RSI"].iloc[-1])
 
     trend_ok = price > ema169
 
-    ribbon = 1 if (df["EMA9"].iloc[-1] > df["EMA29"].iloc[-1] > df["EMA69"].iloc[-1] > ema169) else 0
+    ribbon = 1 if (
+        df["EMA9"].iloc[-1]
+        > df["EMA29"].iloc[-1]
+        > df["EMA69"].iloc[-1]
+        > ema169
+    ) else 0
 
-    score = (60 if trend_ok else 0) + np.clip((40 - rsi_now) * 1.5, 0, 25) + (15 if rsi_now < 45 else 5) + (ribbon * 15)
+    score = (
+        (60 if trend_ok else 0)
+        + np.clip((40 - rsi_now) * 1.5, 0, 25)
+        + (15 if rsi_now < 45 else 5)
+        + (ribbon * 15)
+    )
 
     valid = df.iloc[-200:]
+
     wins = 0
     samples = 80
 
     for _ in range(samples):
-        idx = np.random.randint(50, len(valid) - 10)
-        p = valid["Close"].iloc[idx]
-        a = valid["ATR"].iloc[idx]
 
-        future = valid["Close"].iloc[idx+1:idx+20]
+        idx = np.random.randint(50, len(valid) - 10)
+
+        p = float(valid["Close"].iloc[idx])
+        a = float(valid["ATR"].iloc[idx])
+
+        future = valid["Close"].iloc[idx + 1: idx + 20]
 
         if (future >= p + gain_atr * a).any():
             wins += 1
@@ -121,30 +174,49 @@ results = []
 
 for sector, assets in UNIVERSE.items():
     for a in assets:
-        r = analyze(a, sector)
-        if r:
-            results.append(r)
+
+        try:
+            r = analyze(a, sector)
+
+            if r:
+                results.append(r)
+
+        except Exception as e:
+            st.warning(f"Erro em {a}: {e}")
+
+if len(results) == 0:
+    st.error("Nenhum ativo retornou dados.")
+    st.stop()
 
 df = pd.DataFrame(results)
 
 # ==========================================================
-# SECTOR VIEW (FUND THINKING)
+# SECTOR VIEW
 # ==========================================================
 sector_df = df.groupby("sector").agg({
     "final_score": "mean",
     "prob": "mean"
 }).reset_index()
 
-sector_df["fund_strength"] = sector_df["final_score"] * 0.7 + sector_df["prob"] * 100 * 0.3
+sector_df["fund_strength"] = (
+    sector_df["final_score"] * 0.7
+    + sector_df["prob"] * 100 * 0.3
+)
 
-sector_df = sector_df.sort_values("fund_strength", ascending=False)
+sector_df = sector_df.sort_values(
+    "fund_strength",
+    ascending=False
+)
 
 # ==========================================================
 # FUND CONSTRUCTION
 # ==========================================================
 df["weight"] = df["final_score"] / df["final_score"].sum()
 
-portfolio = df.sort_values("weight", ascending=False)
+portfolio = df.sort_values(
+    "weight",
+    ascending=False
+)
 
 # ==========================================================
 # UI
@@ -153,11 +225,19 @@ st.subheader("🌍 Brazil Institutional Allocation (Sector View)")
 st.dataframe(sector_df)
 
 st.subheader("💼 Simulated Fund Portfolio")
-st.dataframe(portfolio[["asset", "sector", "final_score", "weight"]])
+st.dataframe(
+    portfolio[
+        ["asset", "sector", "final_score", "weight"]
+    ]
+)
 
 st.subheader("🔥 Top Position")
+
 top = portfolio.iloc[0]
-st.success(f"{top['asset']} | Weight: {top['weight']:.2%}")
+
+st.success(
+    f"{top['asset']} | Weight: {top['weight']:.2%}"
+)
 
 # ==========================================================
 # SUMMARY
