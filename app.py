@@ -4,29 +4,44 @@ import numpy as np
 import yfinance as yf
 
 # ==========================================================
-# CONFIG
+# CONFIGURAÇÃO
 # ==========================================================
-st.set_page_config(page_title="Brazil Institutional Fund Simulator", layout="wide")
-st.title("🏦 Brazil Institutional Rotation Fund Simulator")
+st.set_page_config(
+    page_title="Simulador de Fundo Institucional Brasileiro",
+    layout="wide"
+)
+
+st.title("🏦 Simulador de Rotação Institucional da Bolsa Brasileira")
 
 # ==========================================================
-# UNIVERSE (B3 + BDR ONLY)
+# UNIVERSO (APENAS B3 E BDRs)
 # ==========================================================
 UNIVERSE = {
-    "B3 COMMODITIES": ["VALE3.SA", "PETR4.SA"],
-    "B3 FINANCIALS": ["ITUB4.SA", "BBDC4.SA", "SANB11.SA"],
-    "B3 RETAIL": ["MGLU3.SA", "LREN3.SA"],
-    "BDR TECH": ["AAPL34.SA", "MSFT34.SA", "NVDC34.SA", "AMZO34.SA"]
+    "Commodities (Mineração e Petróleo)": ["VALE3.SA", "PETR4.SA"],
+    "Setor Financeiro": ["ITUB4.SA", "BBDC4.SA", "SANB11.SA"],
+    "Varejo": ["MGLU3.SA", "LREN3.SA"],
+    "Tecnologia (BDRs)": ["AAPL34.SA", "MSFT34.SA", "NVDC34.SA", "AMZO34.SA"]
 }
 
 # ==========================================================
-# RISK ENGINE
+# MOTOR DE RISCO
 # ==========================================================
-gain_atr = st.sidebar.slider("Take Profit (ATR)", 1.0, 8.0, 3.0)
-loss_atr = st.sidebar.slider("Stop Loss (ATR)", 0.5, 5.0, 1.5)
+gain_atr = st.sidebar.slider(
+    "Alvo de Lucro (ATR)",
+    1.0,
+    8.0,
+    3.0
+)
+
+loss_atr = st.sidebar.slider(
+    "Stop Loss (ATR)",
+    0.5,
+    5.0,
+    1.5
+)
 
 # ==========================================================
-# DATA
+# DADOS
 # ==========================================================
 @st.cache_data(ttl=3600)
 def load(symbol):
@@ -51,7 +66,7 @@ def load(symbol):
     return df
 
 # ==========================================================
-# INDICATORS
+# INDICADORES
 # ==========================================================
 def ema(s, p):
 
@@ -96,7 +111,7 @@ def atr(df, p=14):
     return tr.rolling(p).mean()
 
 # ==========================================================
-# CORE ENGINE
+# MOTOR PRINCIPAL
 # ==========================================================
 def analyze(asset, sector):
 
@@ -160,15 +175,15 @@ def analyze(asset, sector):
     final_score = (score * 0.7) + (prob * 100 * 0.3)
 
     return {
-        "asset": asset,
-        "sector": sector,
-        "score": score,
-        "prob": prob,
-        "final_score": final_score
+        "Ativo": asset,
+        "Setor": sector,
+        "Pontuação": score,
+        "Probabilidade": prob,
+        "Pontuação Final": final_score
     }
 
 # ==========================================================
-# RUN ENGINE
+# EXECUÇÃO
 # ==========================================================
 results = []
 
@@ -191,61 +206,78 @@ if len(results) == 0:
 df = pd.DataFrame(results)
 
 # ==========================================================
-# SECTOR VIEW
+# VISÃO SETORIAL
 # ==========================================================
-sector_df = df.groupby("sector").agg({
-    "final_score": "mean",
-    "prob": "mean"
+sector_df = df.groupby("Setor").agg({
+    "Pontuação Final": "mean",
+    "Probabilidade": "mean"
 }).reset_index()
 
-sector_df["fund_strength"] = (
-    sector_df["final_score"] * 0.7
-    + sector_df["prob"] * 100 * 0.3
+sector_df["Força do Fundo"] = (
+    sector_df["Pontuação Final"] * 0.7
+    + sector_df["Probabilidade"] * 100 * 0.3
 )
 
 sector_df = sector_df.sort_values(
-    "fund_strength",
+    "Força do Fundo",
     ascending=False
 )
 
 # ==========================================================
-# FUND CONSTRUCTION
+# CONSTRUÇÃO DA CARTEIRA
 # ==========================================================
-df["weight"] = df["final_score"] / df["final_score"].sum()
+df["Peso"] = (
+    df["Pontuação Final"]
+    / df["Pontuação Final"].sum()
+)
 
 portfolio = df.sort_values(
-    "weight",
+    "Peso",
     ascending=False
 )
 
 # ==========================================================
-# UI
+# INTERFACE
 # ==========================================================
-st.subheader("🌍 Brazil Institutional Allocation (Sector View)")
-st.dataframe(sector_df)
+st.subheader("🌍 Alocação Institucional por Setor")
 
-st.subheader("💼 Simulated Fund Portfolio")
 st.dataframe(
-    portfolio[
-        ["asset", "sector", "final_score", "weight"]
-    ]
+    sector_df,
+    use_container_width=True
 )
 
-st.subheader("🔥 Top Position")
+st.subheader("💼 Carteira Simulada do Fundo")
+
+st.dataframe(
+    portfolio[
+        [
+            "Ativo",
+            "Setor",
+            "Pontuação Final",
+            "Peso"
+        ]
+    ],
+    use_container_width=True
+)
+
+st.subheader("🔥 Maior Posição da Carteira")
 
 top = portfolio.iloc[0]
 
 st.success(
-    f"{top['asset']} | Weight: {top['weight']:.2%}"
+    f"{top['Ativo']} | Peso: {top['Peso']:.2%}"
 )
 
 # ==========================================================
-# SUMMARY
+# RESUMO
 # ==========================================================
-st.subheader("🏦 Fund Summary")
+st.subheader("🏦 Resumo do Fundo")
 
 st.write({
-    "Leading Sector": sector_df.iloc[0]["sector"],
-    "Top Asset": top["asset"],
-    "Fund Strength": sector_df.iloc[0]["fund_strength"]
+    "Setor Líder": sector_df.iloc[0]["Setor"],
+    "Melhor Ativo": top["Ativo"],
+    "Força do Fundo": round(
+        sector_df.iloc[0]["Força do Fundo"],
+        2
+    )
 })
