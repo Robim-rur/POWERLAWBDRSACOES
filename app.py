@@ -42,7 +42,6 @@ def load(symbol):
     if df.empty:
         return df
 
-    # Corrige retornos MultiIndex do yfinance
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = df.columns.get_level_values(0)
 
@@ -238,6 +237,36 @@ top = portfolio.iloc[0]
 st.success(
     f"{top['asset']} | Weight: {top['weight']:.2%}"
 )
+
+# ==========================================================
+# GRÁFICO DO MELHOR ATIVO
+# ==========================================================
+st.subheader("📈 Top Position Chart")
+
+chart_df = load(top["asset"])
+
+if not chart_df.empty:
+
+    chart_df["EMA9"] = ema(chart_df["Close"], 9)
+    chart_df["EMA29"] = ema(chart_df["Close"], 29)
+    chart_df["EMA69"] = ema(chart_df["Close"], 69)
+    chart_df["EMA169"] = ema(chart_df["Close"], 169)
+
+    chart_plot = chart_df.tail(250).copy()
+
+    chart_plot = chart_plot.set_index("Date")
+
+    st.line_chart(
+        chart_plot[
+            [
+                "Close",
+                "EMA9",
+                "EMA29",
+                "EMA69",
+                "EMA169"
+            ]
+        ]
+    )
 
 # ==========================================================
 # SUMMARY
